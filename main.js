@@ -8,6 +8,15 @@ const sanitizeHtml = require('sanitize-html'); //입력 폼에서 <script>테그
 //실제 파일로는 <script>가 있지만, 페이지소스보기를 하면 안보임 (살균됨)
 const qs = require('querystring');
 const bodyParser = require('body-parser');
+const mysql = require('mysql');
+const db = mysql.createConnection({ //커넥션을 생성 
+    host: 'localhost',
+    user: 'root',
+    password: 'root',
+    database: 'opentutorials'
+});
+
+db.connect(); // 실제 접속이 들어감
 
 app.use(bodyParser.urlencoded({ extended: false }));
 // bodyParser가 실행되면서 그 결과로 미들웨어가 들어오게됨 bodyParser.urlencoded({extended: false}) 부분에 
@@ -16,7 +25,7 @@ app.use(bodyParser.urlencoded({ extended: false }));
 // app.post('/create_process', function (request, response) { --> 여기에서 request 변수에 body 프로퍼티를 만들어줌 (body parser가)
 
 app.get('/', (request, response) => { //경로, 접속자가 들어왔을 때 호출될 함수 
-    fs.readdir('./data', function (error, filelist) { //filelist는 data라는 디렉토리의 파일 목록을 가져옴
+    /*fs.readdir('./data', function (error, filelist) { //filelist는 data라는 디렉토리의 파일 목록을 가져옴
         //console.log(filelist);
         let title = 'Welcome';
         let description = 'Hello, Node.js';
@@ -27,11 +36,25 @@ app.get('/', (request, response) => { //경로, 접속자가 들어왔을 때 �
         ); // 이 부분을 함수로 만듦 
 
         response.send(html);
+    })
+    */
+    db.query(`SELECT * FROM topic`, function (error, topics) { //에러일 경우 에러 정보를, 정상동작했을 땐 sql결과가 담김
+        //console.log(topics);
+
+        const title = 'Welcome';
+        const description = 'Hello, Node.js';
+        const list = template.list(topics);
+        const html = template.HTML(title, list,
+            `<h2>${title}</h2>${description}`,
+            `<a href="/create">create</a>`
+        );
+        response.writeHead(200);
+        response.end(html);
     });
 })
 
 app.get('/page/:pageId', function (request, response) { //* URL 패스방식으로 파라미터 처리하는 라우팅 기법 살펴봄
-    fs.readdir('./data', function (error, filelist) { //filelist는 data라는 디렉토리의 파일 목록을 가져옴
+    /*fs.readdir('./data', function (error, filelist) { //filelist는 data라는 디렉토리의 파일 목록을 가져옴
         //console.log(filelist);
         let filteredId = path.parse(request.params.pageId).base // *쿼리스트링을 사용하지 않으니 변경
         // 아래 readFile 외부에서 들어오는 경로를 의심해봐야함 
@@ -53,12 +76,41 @@ app.get('/page/:pageId', function (request, response) { //* URL 패스방식으�
             ); // 이 부분을 함수로 만듦 
             response.send(html);
         });
+    });*/
+    const filteredId = path.parse(request.params.pageId).base // *쿼리스트링을 사용하지 않으니 변경
+    //글 목록 가져옴 
+    db.query(`SELECT * FROM topic`, function (error, topics) {
+        if (error) {
+            throw error;
+        }
+
+
+        db.query(`SELECT * FROM topic WHERE id=?`, [filteredId], function (error2, topic) {
+            if (error2) {
+                throw error2;
+            }
+
+            const title = topic[0].title;
+            const description = topic[0].description;
+            const list = template.list(topics);
+            const html = template.HTML(title, list,
+                `<h2>${title}</h2>${description}`,
+                `<a href="/create">create</a>
+        <a href="/update/${filteredId}">update</a>
+                <form action="/delete_process" method="post"> 
+                    <input type="hidden" name="id" value="${filteredId}">
+                    <input type="submit" value="delete">
+                </form>`
+
+            );
+            response.writeHead(200);
+            response.end(html);
+        });
     });
 });
 
-
 app.get('/create', function (request, response) { //* URL 패스방식으로 파라미터 처리하는 라우팅 기법 살펴봄
-    fs.readdir('./data', function (error, filelist) { //filelist는 data라는 디렉토리의 파일 목록을 가져옴
+    /*fs.readdir('./data', function (error, filelist) { //filelist는 data라는 디렉토리의 파일 목록을 가져옴
         //console.log(filelist);
         let title = 'Web - create';
         let list = template.list(filelist);
@@ -74,6 +126,26 @@ app.get('/create', function (request, response) { //* URL 패스방식으로 파
             </form>
     `, '');
         response.send(html);
+    });*/
+    db.query(`SELECT * FROM topic`, function (error, topics) {
+        const title = 'Create';
+        const list = template.list(topics);
+        const html = template.HTML(title, list,
+            `
+          <form action="/create_process" method="post">
+            <p><input type="text" name="title" placeholder="title"></p>
+            <p>
+              <textarea name="description" placeholder="description"></textarea>
+            </p>
+            <p>
+              <input type="submit">
+            </p>
+          </form>
+          `,
+            `<a href="/create">create</a>`
+        );
+        response.writeHead(200);
+        response.end(html);
     });
 });
 
@@ -95,19 +167,31 @@ app.post('/create_process', function (request, response) { //* post방식이니�
             });
     });
     */
-    let post = request.body; // * qs.parse(body) --> request.body로 변경함 (body parser 사용하니까)
-    let title = post.title;
-    let description = post.description;
-    fs.writeFile(`data/${title}`, description, 'utf8',
+    const post = request.body; // * qs.parse(body) --> request.body로 변경함 (body parser 사용하니까)
+    const title = post.title;
+    const description = post.description;
+    /*fs.writeFile(`data/${title}`, description, 'utf8',
         function (err) { // 콜백 실행 = 파일 저장끝남
             response.writeHead(302, { Location: `/?id=${title}` }); //다른페이지로 리다이렉트 시켜라
             response.end();
-        });
+        });*/
+    db.query(`
+            INSERT INTO topic (title, description, created, author_id) 
+              VALUES(?, ?, NOW(), ?)`,
+        [post.title, post.description, 1],
+        function (error, result) {
+            if (error) {
+                throw error;
+            }
+            response.writeHead(302, { Location: `/?id=${result.insertId}` });
+            response.end();
+        }
+    )
 });
 
 
 app.get('/update/:pageId', function (request, response) { // ** 위에 /page/:pageId에서 링크를 만들어줄 때 id를 넣어줬으니까 여기도 update/:pageid
-    fs.readdir('./data', function (error, filelist) { //filelist는 data라는 디렉토리의 파일 목록을 가져옴
+    /*fs.readdir('./data', function (error, filelist) { //filelist는 data라는 디렉토리의 파일 목록을 가져옴
         //console.log(filelist);
         let filteredId = path.parse(request.params.pageId).base // 이곳도 
         fs.readFile(`data/${filteredId}`, 'utf8', function (err, description) {
@@ -132,38 +216,78 @@ app.get('/update/:pageId', function (request, response) { // ** 위에 /page/:pa
             ); // 이 부분을 함수로 만듦 
             response.send(html);
         });
+    });*/
+    const filteredId = path.parse(request.params.pageId).base
+    db.query('SELECT * FROM topic', function (error, topics) {
+        if (error) {
+            throw error;
+        }
+
+        db.query(`SELECT * FROM topic WHERE id=?`, [filteredId], function (error2, topic) {
+            if (error2) {
+                throw error2;
+            }
+            const list = template.list(topics);
+            const html = template.HTML(topic[0].title, list,
+                `
+            <form action="/update_process" method="post">
+              <input type="hidden" name="id" value="${topic[0].id}">
+              <p><input type="text" name="title" placeholder="title" value="${topic[0].title}"></p>
+              <p>
+                <textarea name="description" placeholder="description">${topic[0].description}</textarea>
+              </p>
+              <p>
+                <input type="submit">
+              </p>
+            </form>
+            `,
+                `<a href="/create">create</a> <a href="/update?id=${topic[0].id}">update</a>`
+            );
+            response.writeHead(200);
+            response.end(html);
+        });
     });
 });
 
 app.post('/update_process', function (request, response) {
-    let post = request.body;
-    let id = post.id; //id값을 추가. 어떤 게시글을 수정할건지 알아야 해서
-    let title = post.title;
-    let description = post.description;
+    const post = request.body;
+    const id = post.id; //id값을 추가. 어떤 게시글을 수정할건지 알아야 해서
+    const title = post.title;
+    const description = post.description;
 
-    fs.rename(`data/${id}`, `data/${title}`, function (error) { //파일 명 변경! 
+    /*fs.rename(`data/${id}`, `data/${title}`, function (error) { //파일 명 변경! 
         fs.writeFile(`data/${title}`, description, 'utf8', //수정된 파일명에, description을 수정하고, 수정게시글로 이동함
             function (err) { // 콜백 실행 = 파일 저장끝남
                 // response.writeHead(302, { Location: `/?id=${title}` });
                 // response.end();
                 response.redirect(`/?id=${title}`);
             });
-    });
+    });*/
+    db.query('UPDATE topic SET title=?, description=?, author_id=1 WHERE id=?', [post.title, post.description, post.id], function (error, result) {
+        response.writeHead(302, { Location: `/page/${post.id}` });
+        response.end();
+    })
     console.log(post);
 });
 
 app.post('/delete_process', function (request, response) {
-    let post = request.body;
-    let id = post.id; //id값을 추가. 어떤 게시글을 수정할건지 알아야 해서
-    let filteredId = path.parse(id).base
-    fs.unlink(`data/${filteredId}`, function (error) {
+    const post = request.body;
+    const id = post.id; //id값을 추가. 어떤 게시글을 수정할건지 알아야 해서
+    const filteredId = path.parse(id).base
+    /*fs.unlink(`data/${filteredId}`, function (error) {
 
         // response.writeHead(302, { Location: `/` });
         // response.end();
 
         // ** express는 리다이렉션을 편리하게 하는 기능 있어서 아래처럼 수정
         response.redirect('/');
-    })
+    })*/
+    db.query('DELETE FROM topic WHERE id = ?', [post.id], function (error, result) {
+        if (error) {
+            throw error;
+        }
+        response.redirect('/');
+    });
 });
 
 app.listen(port, () => {
