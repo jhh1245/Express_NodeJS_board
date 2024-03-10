@@ -18,6 +18,7 @@ const db = mysql.createConnection({ //커넥션을 생성
 
 db.connect(); // 실제 접속이 들어감
 
+app.use(express.static(path.join(__dirname, 'css')))
 app.use(bodyParser.urlencoded({ extended: false }));
 // bodyParser가 실행되면서 그 결과로 미들웨어가 들어오게됨 bodyParser.urlencoded({extended: false}) 부분에 
 // main.js 실행될때 마다, 사용자가 요청할때 마다 위 코드로 인해 만들어진 미들웨어가 실행됨 
@@ -85,23 +86,25 @@ app.get('/page/:pageId', function (request, response) { //* URL 패스방식으�
         }
 
 
-        db.query(`SELECT * FROM topic WHERE id=?`, [filteredId], function (error2, topic) {
+        db.query(`SELECT * FROM topic LEFT JOIN author ON topic.author_id=author.id WHERE topic.id=?`, [filteredId], function (error2, topic) {
             if (error2) {
                 throw error2;
             }
+            //console.log(topic);
 
             const title = topic[0].title;
             const description = topic[0].description;
             const list = template.list(topics);
             const html = template.HTML(title, list,
-                `<h2>${title}</h2>${description}`,
+                `<h2>${title}</h2>
+                ${description}
+                <p>by ${topic[0].name}</p>`,
                 `<a href="/create">create</a>
-        <a href="/update/${filteredId}">update</a>
-                <form action="/delete_process" method="post"> 
-                    <input type="hidden" name="id" value="${filteredId}">
-                    <input type="submit" value="delete">
-                </form>`
-
+                <a href="/update/${filteredId}">update</a>
+                    <form action="/delete_process" method="post"> 
+                        <input type="hidden" name="id" value="${filteredId}">
+                        <input type="submit" value="delete">
+                    </form>`
             );
             response.writeHead(200);
             response.end(html);
@@ -128,24 +131,30 @@ app.get('/create', function (request, response) { //* URL 패스방식으로 파
         response.send(html);
     });*/
     db.query(`SELECT * FROM topic`, function (error, topics) {
-        const title = 'Create';
-        const list = template.list(topics);
-        const html = template.HTML(title, list,
-            `
-          <form action="/create_process" method="post">
-            <p><input type="text" name="title" placeholder="title"></p>
-            <p>
-              <textarea name="description" placeholder="description"></textarea>
-            </p>
-            <p>
-              <input type="submit">
-            </p>
-          </form>
-          `,
-            `<a href="/create">create</a>`
-        );
-        response.writeHead(200);
-        response.end(html);
+        db.query(`SELECT * FROM author`, function (error2, authors) {
+            const title = 'Create';
+            const list = template.list(topics);
+            const html = template.HTML(title, list,
+                `
+              <form action="/create_process" method="post">
+                <p><input type="text" name="title" placeholder="title"></p>
+                <p>
+                  <textarea name="description" placeholder="description"></textarea>
+                </p>
+                <p>
+                    ${template.authorSelect(authors)}
+                </p>
+                <p>
+                  <input type="submit">
+                </p>
+              </form>
+              `,
+                `<a href="/create">create</a>`
+            );
+            response.writeHead(200);
+            response.end(html);
+        })
+
     });
 });
 
@@ -178,7 +187,7 @@ app.post('/create_process', function (request, response) { //* post방식이니�
     db.query(`
             INSERT INTO topic (title, description, created, author_id) 
               VALUES(?, ?, NOW(), ?)`,
-        [post.title, post.description, 1],
+        [post.title, post.description, post.author],
         function (error, result) {
             if (error) {
                 throw error;
@@ -227,24 +236,30 @@ app.get('/update/:pageId', function (request, response) { // ** 위에 /page/:pa
             if (error2) {
                 throw error2;
             }
-            const list = template.list(topics);
-            const html = template.HTML(topic[0].title, list,
-                `
-            <form action="/update_process" method="post">
-              <input type="hidden" name="id" value="${topic[0].id}">
-              <p><input type="text" name="title" placeholder="title" value="${topic[0].title}"></p>
-              <p>
-                <textarea name="description" placeholder="description">${topic[0].description}</textarea>
-              </p>
-              <p>
-                <input type="submit">
-              </p>
-            </form>
-            `,
-                `<a href="/create">create</a> <a href="/update?id=${topic[0].id}">update</a>`
-            );
-            response.writeHead(200);
-            response.end(html);
+            db.query(`SELECT * FROM author`, function (error2, authors) {
+                const list = template.list(topics);
+                const html = template.HTML(topic[0].title, list,
+                    `
+                <form action="/update_process" method="post">
+                  <input type="hidden" name="id" value="${topic[0].id}">
+                  <p><input type="text" name="title" placeholder="title" value="${topic[0].title}"></p>
+                  <p>
+                    <textarea name="description" placeholder="description">${topic[0].description}</textarea>
+                  </p>
+                  <p>
+                    ${template.authorSelect(authors, topic[0].author_id)}
+                  </p>
+                  <p>
+                    <input type="submit">
+                  </p>
+                </form>
+                `,
+                    `<a href="/create">create</a> <a href="/update?id=${topic[0].id}">update</a>`
+                );
+                response.writeHead(200);
+                response.end(html);
+            });
+
         });
     });
 });
@@ -263,7 +278,7 @@ app.post('/update_process', function (request, response) {
                 response.redirect(`/?id=${title}`);
             });
     });*/
-    db.query('UPDATE topic SET title=?, description=?, author_id=1 WHERE id=?', [post.title, post.description, post.id], function (error, result) {
+    db.query('UPDATE topic SET title=?, description=?, author_id=? WHERE id=?', [post.title, post.description, post.author, post.id], function (error, result) {
         response.writeHead(302, { Location: `/page/${post.id}` });
         response.end();
     })
